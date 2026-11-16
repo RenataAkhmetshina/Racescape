@@ -5,6 +5,7 @@
 #include "AIController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "Sound/SoundBase.h"
 
 APolicePawn::APolicePawn()
 {
@@ -112,6 +113,10 @@ void APolicePawn::StartRam()
     bCanAttack = false;
     if (AAIController* AI = Cast<AAIController>(GetController())) AI->StopMovement();
     Movement->MaxSpeed = 0.f;
+
+    if (HornSound)
+        UGameplayStatics::PlaySoundAtLocation(this, HornSound, GetActorLocation());
+
     GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::DoRam, WindupTime, false);
 }
 

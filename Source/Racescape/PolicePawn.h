@@ -30,7 +30,9 @@ public:
     UPROPERTY(EditAnywhere) float RamDuration = 0.6f;
     UPROPERTY(EditAnywhere) float AttackCooldown = 4.f;
     UPROPERTY(EditAnywhere) float RamDamage = 1.f;
-    UPROPERTY(EditAnywhere) float RamHitDistance = 450.f;   // новое
+    UPROPERTY(EditAnywhere) float RamHitDistance = 450.f;
+
+    UPROPERTY(EditAnywhere, Category = "Audio") class USoundBase* HornSound = nullptr;
 
     UPROPERTY(BlueprintReadOnly) EPoliceState State = EPoliceState::Patrol;
 
