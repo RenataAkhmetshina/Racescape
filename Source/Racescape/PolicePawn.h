@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "PoliceStatsData.h"
 #include "PolicePawn.generated.h"
 
 UENUM(BlueprintType)
@@ -19,18 +20,9 @@ public:
     UPROPERTY(VisibleAnywhere) class UFloatingPawnMovement* Movement;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<AActor*> PatrolPoints;
-    UPROPERTY(EditAnywhere) float PatrolSpeed = 400.f;
-    UPROPERTY(EditAnywhere) float ChaseSpeed = 800.f;
-    UPROPERTY(EditAnywhere) float RamSpeed = 1800.f;
-    UPROPERTY(EditAnywhere) float VisionRange = 2500.f;
-    UPROPERTY(EditAnywhere) float VisionHalfAngle = 60.f;
-    UPROPERTY(EditAnywhere) float SearchTime = 5.f;
-    UPROPERTY(EditAnywhere) float AttackRange = 500.f;
-    UPROPERTY(EditAnywhere) float WindupTime = 0.8f;
-    UPROPERTY(EditAnywhere) float RamDuration = 0.6f;
-    UPROPERTY(EditAnywhere) float AttackCooldown = 4.f;
-    UPROPERTY(EditAnywhere) float RamDamage = 1.f;
-    UPROPERTY(EditAnywhere) float RamHitDistance = 450.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Balance")
+    TObjectPtr<UPoliceStatsData> Stats;
 
     UPROPERTY(EditAnywhere, Category = "Audio") class USoundBase* HornSound = nullptr;
 

@@ -29,27 +29,33 @@ APolicePawn::APolicePawn()
 void APolicePawn::BeginPlay()
 {
     Super::BeginPlay();
+    if (!Stats)
+    {
+        UE_LOG(LogTemp, Error, TEXT("%s: Stats asset not assigned!"), *GetName());
+        SetActorTickEnabled(false);
+        return;
+    }
     Movement->SetPlaneConstraintOrigin(GetActorLocation());
-    Movement->MaxSpeed = PatrolSpeed;
-    GetWorldTimerManager().SetTimer(ThinkTimer, this, &APolicePawn::Think, 0.1f, true);
-    UE_LOG(LogTemp, Warning, TEXT("Patrol points: %d"), PatrolPoints.Num());
+    Movement->MaxSpeed = Stats->PatrolSpeed;
+    GetWorldTimerManager().SetTimer(ThinkTimer, this, &APolicePawn::Think, Stats->ThinkInterval, true);
 }
 
 bool APolicePawn::CanSeePlayer() const
 {
+    if (!Stats) return false;
     APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
     if (!Player) return false;
 
     const FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
-    if (ToPlayer.Size() > VisionRange) return false;
+    if (ToPlayer.Size() > Stats->VisionRange) return false;
 
     const float Angle = FMath::RadiansToDegrees(
         FMath::Acos(FVector::DotProduct(GetActorForwardVector(), ToPlayer.GetSafeNormal())));
-    if (Angle > VisionHalfAngle) return false;
+    if (Angle > Stats->VisionHalfAngle) return false;
 
     FHitResult Hit;
     FCollisionQueryParams Params; Params.AddIgnoredActor(this);
-    const FVector Up(0, 0, 20);
+    const FVector Up(0, 0, Stats->EyeHeightOffset);
     GetWorld()->LineTraceSingleByChannel(Hit, GetActorLocation() + Up,
         Player->GetActorLocation() + Up, ECC_Visibility, Params);
     return Hit.GetActor() == Player;
@@ -57,6 +63,7 @@ bool APolicePawn::CanSeePlayer() const
 
 void APolicePawn::Think()
 {
+    if (!Stats) return;
     if (State == EPoliceState::RamAttack) return;
     AAIController* AI = Cast<AAIController>(GetController());
     APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
@@ -70,19 +77,19 @@ void APolicePawn::Think()
         if (State != EPoliceState::Chase)
         {
             State = EPoliceState::Chase;
-            Movement->MaxSpeed = ChaseSpeed;
+            Movement->MaxSpeed = Stats->ChaseSpeed;
         }
 
-        if (bCanAttack && FVector::Dist(GetActorLocation(), Player->GetActorLocation()) <= AttackRange)
+        if (bCanAttack && FVector::Dist(GetActorLocation(), Player->GetActorLocation()) <= Stats->AttackRange)
             StartRam();
         else
-            AI->MoveToActor(Player, 150.f);
+            AI->MoveToActor(Player, Stats->AcceptanceRadius);
     }
     else if (State == EPoliceState::Chase)
     {
         State = EPoliceState::Search;
-        AI->MoveToLocation(LastKnownLocation, 150.f);
-        GetWorldTimerManager().SetTimer(SearchTimer, this, &APolicePawn::ReturnToPatrol, SearchTime, false);
+        AI->MoveToLocation(LastKnownLocation, Stats->AcceptanceRadius);
+        GetWorldTimerManager().SetTimer(SearchTimer, this, &APolicePawn::ReturnToPatrol, Stats->SearchTime, false);
     }
     else if (State == EPoliceState::Patrol)
     {
@@ -93,22 +100,25 @@ void APolicePawn::Think()
 
 void APolicePawn::MoveToNextPoint()
 {
+    if (!Stats) return;
     AAIController* AI = Cast<AAIController>(GetController());
     if (!AI || PatrolPoints.Num() == 0) return;
-    AI->MoveToActor(PatrolPoints[PatrolIndex], 150.f);
+    AI->MoveToActor(PatrolPoints[PatrolIndex], Stats->AcceptanceRadius);
     PatrolIndex = (PatrolIndex + 1) % PatrolPoints.Num();
 }
 
 void APolicePawn::ReturnToPatrol()
 {
+    if (!Stats) return;
     if (State != EPoliceState::Search) return;
     State = EPoliceState::Patrol;
-    Movement->MaxSpeed = PatrolSpeed;
+    Movement->MaxSpeed = Stats->PatrolSpeed;
     MoveToNextPoint();
 }
 
 void APolicePawn::StartRam()
 {
+    if (!Stats) return;
     State = EPoliceState::RamAttack;
     bCanAttack = false;
     if (AAIController* AI = Cast<AAIController>(GetController())) AI->StopMovement();
@@ -117,39 +127,42 @@ void APolicePawn::StartRam()
     if (HornSound)
         UGameplayStatics::PlaySoundAtLocation(this, HornSound, GetActorLocation());
 
-    GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::DoRam, WindupTime, false);
+    GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::DoRam, Stats->WindupTime, false);
 }
 
 void APolicePawn::DoRam()
 {
+    if (!Stats) return;
     APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
     FVector Dir = Player ? Player->GetActorLocation() - GetActorLocation() : GetActorForwardVector();
     Dir.Z = 0;
     RamDirection = Dir.GetSafeNormal();
     bIsRamming = true;
     bHitThisRam = false;
-    Movement->MaxSpeed = RamSpeed;
-    GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::EndRam, RamDuration, false);
+    Movement->MaxSpeed = Stats->RamSpeed;
+    GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::EndRam, Stats->RamDuration, false);
 }
 
 void APolicePawn::EndRam()
 {
+    if (!Stats) return;
     bIsRamming = false;
-    Movement->MaxSpeed = ChaseSpeed;
+    Movement->MaxSpeed = Stats->ChaseSpeed;
     State = EPoliceState::Search;
-    GetWorldTimerManager().SetTimer(SearchTimer, this, &APolicePawn::ReturnToPatrol, SearchTime, false);
+    GetWorldTimerManager().SetTimer(SearchTimer, this, &APolicePawn::ReturnToPatrol, Stats->SearchTime, false);
     GetWorldTimerManager().SetTimer(CooldownTimer,
-        FTimerDelegate::CreateLambda([this] { bCanAttack = true; }), AttackCooldown, false);
+        FTimerDelegate::CreateLambda([this] { bCanAttack = true; }), Stats->AttackCooldown, false);
 }
 
 void APolicePawn::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+    if (!Stats) return;
 
     const FVector Vel = GetVelocity();
-    if (Vel.Size() > 10.f)
+    if (Vel.Size() > Stats->MinTurnSpeed)
     {
-        SetActorRotation(FMath::RInterpTo(GetActorRotation(), Vel.Rotation(), DeltaTime, 8.f));
+        SetActorRotation(FMath::RInterpTo(GetActorRotation(), Vel.Rotation(), DeltaTime, Stats->TurnInterpSpeed));
     }
 
     if (bIsRamming)
@@ -158,11 +171,11 @@ void APolicePawn::Tick(float DeltaTime)
 
         APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
         if (Player && !bHitThisRam &&
-            FVector::Dist(GetActorLocation(), Player->GetActorLocation()) < RamHitDistance)
+            FVector::Dist(GetActorLocation(), Player->GetActorLocation()) < Stats->RamHitDistance)
         {
             bHitThisRam = true;
-            UGameplayStatics::ApplyDamage(Player, RamDamage, GetController(), this, nullptr);
-            GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::EndRam, 0.01f, false);
+            UGameplayStatics::ApplyDamage(Player, Stats->RamDamage, GetController(), this, nullptr);
+            GetWorldTimerManager().SetTimer(RamTimer, this, &APolicePawn::EndRam, Stats->RamEndDelay, false);
         }
     }
 }
