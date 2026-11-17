@@ -30,35 +30,42 @@ ABlockerPawn::ABlockerPawn()
 void ABlockerPawn::BeginPlay()
 {
     Super::BeginPlay();
+    if (!Stats)
+    {
+        UE_LOG(LogTemp, Error, TEXT("%s: Stats asset not assigned!"), *GetName());
+        SetActorTickEnabled(false);
+        return;
+    }
     Movement->SetPlaneConstraintOrigin(GetActorLocation());
-    Movement->MaxSpeed = CruiseSpeed;
-    GetWorldTimerManager().SetTimer(ThinkTimer, this, &ABlockerPawn::Think, 0.1f, true);
+    Movement->MaxSpeed = Stats->CruiseSpeed;
+    GetWorldTimerManager().SetTimer(ThinkTimer, this, &ABlockerPawn::Think, Stats->ThinkInterval, true);
 }
 
 bool ABlockerPawn::ShouldIntercept() const
 {
+    if (!Stats) return false;
     APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
     if (!Player || !BlockPoint) return false;
 
-    if (FVector::Dist2D(GetActorLocation(), Player->GetActorLocation()) < ProximityTriggerDistance)
+    if (FVector::Dist2D(GetActorLocation(), Player->GetActorLocation()) < Stats->ProximityTriggerDistance)
         return true;
 
     const FVector ToJunction = BlockPoint->GetActorLocation() - Player->GetActorLocation();
-    if (ToJunction.Size2D() > TriggerDistance) return false;
+    if (ToJunction.Size2D() > Stats->TriggerDistance) return false;
 
     const FVector Vel = Player->GetVelocity();
-    if (Vel.Size2D() < MinPlayerSpeed) return false;
+    if (Vel.Size2D() < Stats->MinPlayerSpeed) return false;
 
     FVector VelDir = Vel; VelDir.Z = 0;
     FVector JunctionDir = ToJunction; JunctionDir.Z = 0;
-    if (FVector::DotProduct(VelDir.GetSafeNormal(), JunctionDir.GetSafeNormal()) < ApproachDot)
+    if (FVector::DotProduct(VelDir.GetSafeNormal(), JunctionDir.GetSafeNormal()) < Stats->ApproachDot)
         return false;
 
-    if (bRequireLineOfSight)
+    if (Stats->bRequireLineOfSight)
     {
         FHitResult Hit;
         FCollisionQueryParams Params; Params.AddIgnoredActor(this);
-        const FVector Up(0, 0, 20);
+        const FVector Up(0, 0, Stats->EyeHeightOffset);
         GetWorld()->LineTraceSingleByChannel(Hit, GetActorLocation() + Up,
             Player->GetActorLocation() + Up, ECC_Visibility, Params);
         if (Hit.GetActor() != Player) return false;
@@ -69,6 +76,10 @@ bool ABlockerPawn::ShouldIntercept() const
 
 void ABlockerPawn::Think()
 {
+    UE_LOG(LogTemp, Warning, TEXT("Blocker %s: state %d, controller %s, ambush %s, block %s"),
+        *GetName(), (int32)State, GetController() ? TEXT("ok") : TEXT("NULL"),
+        AmbushPoint ? TEXT("ok") : TEXT("NULL"), BlockPoint ? TEXT("ok") : TEXT("NULL"));
+    if (!Stats) return;
     AAIController* AI = Cast<AAIController>(GetController());
     if (!AI || !AmbushPoint || !BlockPoint) return;
 
@@ -77,15 +88,16 @@ void ABlockerPawn::Think()
     case EBlockerState::Moving:
     {
         const float D = FVector::Dist2D(GetActorLocation(), AmbushPoint->GetActorLocation());
-        if (D < ArriveRadius || (D < ArriveRadius * 2.f && AI->GetMoveStatus() == EPathFollowingStatus::Idle))
+        if (D < Stats->ArriveRadius ||
+            (D < Stats->ArriveRadius * Stats->ArriveRadiusMultiplier && AI->GetMoveStatus() == EPathFollowingStatus::Idle))
         {
             AI->StopMovement();
             State = EBlockerState::Ambush;
         }
         else if (AI->GetMoveStatus() == EPathFollowingStatus::Idle)
         {
-            Movement->MaxSpeed = CruiseSpeed;
-            AI->MoveToActor(AmbushPoint, 50.f);
+            Movement->MaxSpeed = Stats->CruiseSpeed;
+            AI->MoveToActor(AmbushPoint, Stats->PointAcceptance);
         }
         break;
     }
@@ -97,10 +109,10 @@ void ABlockerPawn::Think()
     }
     case EBlockerState::Intercept:
     {
-        if (FVector::Dist2D(GetActorLocation(), BlockPoint->GetActorLocation()) < ArriveRadius)
+        if (FVector::Dist2D(GetActorLocation(), BlockPoint->GetActorLocation()) < Stats->ArriveRadius)
             StartBlocking();
         else if (AI->GetMoveStatus() == EPathFollowingStatus::Idle)
-            AI->MoveToLocation(BlockPoint->GetActorLocation(), 50.f);
+            AI->MoveToLocation(BlockPoint->GetActorLocation(), Stats->PointAcceptance);
         break;
     }
     default:
@@ -110,6 +122,7 @@ void ABlockerPawn::Think()
 
 void ABlockerPawn::StartWindup()
 {
+    if (!Stats) return;
     State = EBlockerState::Windup;
     bCanTrigger = false;
     Movement->MaxSpeed = 0.f;
@@ -117,46 +130,50 @@ void ABlockerPawn::StartWindup()
     if (HornSound)
         UGameplayStatics::PlaySoundAtLocation(this, HornSound, GetActorLocation());
 
-    GetWorldTimerManager().SetTimer(WindupTimer, this, &ABlockerPawn::StartIntercept, WindupTime, false);
+    GetWorldTimerManager().SetTimer(WindupTimer, this, &ABlockerPawn::StartIntercept, Stats->WindupTime, false);
 }
 
 void ABlockerPawn::StartIntercept()
 {
+    if (!Stats) return;
     State = EBlockerState::Intercept;
-    Movement->MaxSpeed = InterceptSpeed;
+    Movement->MaxSpeed = Stats->InterceptSpeed;
     if (AAIController* AI = Cast<AAIController>(GetController()))
-        AI->MoveToLocation(BlockPoint->GetActorLocation(), 50.f);
+        AI->MoveToLocation(BlockPoint->GetActorLocation(), Stats->PointAcceptance);
 }
 
 void ABlockerPawn::StartBlocking()
 {
+    if (!Stats) return;
     State = EBlockerState::Blocking;
     if (AAIController* AI = Cast<AAIController>(GetController())) AI->StopMovement();
     Movement->MaxSpeed = 0.f;
-    GetWorldTimerManager().SetTimer(BlockTimer, this, &ABlockerPawn::EndBlocking, BlockDuration, false);
+    GetWorldTimerManager().SetTimer(BlockTimer, this, &ABlockerPawn::EndBlocking, Stats->BlockDuration, false);
 }
 
 void ABlockerPawn::EndBlocking()
 {
+    if (!Stats) return;
     State = EBlockerState::Moving;
-    Movement->MaxSpeed = CruiseSpeed;
+    Movement->MaxSpeed = Stats->CruiseSpeed;
     GetWorldTimerManager().SetTimer(CooldownTimer,
-        FTimerDelegate::CreateLambda([this] { bCanTrigger = true; }), CooldownTime, false);
+        FTimerDelegate::CreateLambda([this] { bCanTrigger = true; }), Stats->CooldownTime, false);
 }
 
 void ABlockerPawn::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+    if (!Stats) return;
 
     if (State == EBlockerState::Blocking && BlockPoint)
     {
         SetActorRotation(FMath::RInterpTo(GetActorRotation(),
-            BlockPoint->GetActorRotation(), DeltaTime, 6.f));
+            BlockPoint->GetActorRotation(), DeltaTime, Stats->BlockTurnSpeed));
     }
     else
     {
         const FVector Vel = GetVelocity();
-        if (Vel.Size() > 10.f)
-            SetActorRotation(FMath::RInterpTo(GetActorRotation(), Vel.Rotation(), DeltaTime, 8.f));
+        if (Vel.Size() > Stats->MinTurnSpeed)
+            SetActorRotation(FMath::RInterpTo(GetActorRotation(), Vel.Rotation(), DeltaTime, Stats->TurnInterpSpeed));
     }
 }
