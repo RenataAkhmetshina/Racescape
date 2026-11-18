@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "LevelData.h"
 #include "SaveSubsystem.generated.h"
 
 USTRUCT(BlueprintType)
@@ -23,6 +24,8 @@ public:
     virtual void Deinitialize() override;
 
     UPROPERTY(BlueprintReadOnly) FRaceSave Data;
+
+    UPROPERTY(BlueprintReadWrite) TObjectPtr<ULevelData> SelectedLevel;
 
     UFUNCTION(BlueprintCallable) void Load();
     UFUNCTION(BlueprintCallable) void Save();
